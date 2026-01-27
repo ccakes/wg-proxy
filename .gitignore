@@ -1,0 +1,50 @@
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+/wg-proxy
+/wg-proxy-tray
+
+# Test binaries, build and coverage output
+*.test
+*.out
+coverage.out
+
+# Dependency directories
+vendor/
+
+# Go workspace and modules (if used)
+go.work
+go.work.sum
+
+# Executable and build output directories
+/bin/
+build/
+dist/
+
+# IDE/editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# Editor swap and temp files
+*~
+*.swp
+*.swp.*
+
+# macOS hidden files
+.DS_Store
+
+# Logs
+*.log
+
+# Environment variables
+.env
+config.yaml
+
+.claude/
+SPEC.md

@@ -1,0 +1,25 @@
+[Unit]
+Description=WireGuard Userspace Proxy (%i profile)
+Documentation=https://github.com/ccakes/wgproxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/wg-proxy --profile %i
+Restart=on-failure
+RestartSec=5
+
+# Environment configuration
+# Uncomment to use a custom config path:
+# Environment=WG_CONFIG=%h/.config/wg-proxy/config.yaml
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.config/wg-proxy
+
+[Install]
+WantedBy=default.target
