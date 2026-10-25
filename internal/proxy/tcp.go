@@ -11,20 +11,23 @@ import (
 
 	"github.com/ccakes/wgproxy/internal/config"
 	"github.com/ccakes/wgproxy/internal/metrics"
-	"github.com/ccakes/wgproxy/internal/tunnel"
 )
 
 const (
-	// TCPTimeout is the connection timeout for TCP proxies.
-	TCPTimeout = 2 * time.Minute
+	dialTimeout = 30 * time.Second
 	// BufferSize is the buffer size for data copying.
 	BufferSize = 32 * 1024
 )
 
+// tcpDialer keeps forwarding independent of the tunnel implementation.
+type tcpDialer interface {
+	DialTCP(context.Context, string) (net.Conn, error)
+}
+
 // TCPProxy handles TCP port forwarding.
 type TCPProxy struct {
 	rule     *config.ForwardRule
-	manager  *tunnel.Manager
+	manager  tcpDialer
 	logger   *slog.Logger
 	metrics  *metrics.Collector
 	listener net.Listener
@@ -34,7 +37,7 @@ type TCPProxy struct {
 }
 
 // NewTCPProxy creates a new TCP proxy for the given rule.
-func NewTCPProxy(rule *config.ForwardRule, manager *tunnel.Manager, logger *slog.Logger, m *metrics.Collector) *TCPProxy {
+func NewTCPProxy(rule *config.ForwardRule, manager tcpDialer, logger *slog.Logger, m *metrics.Collector) *TCPProxy {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TCPProxy{
 		rule:    rule,
@@ -97,11 +100,8 @@ func (p *TCPProxy) handleConn(clientConn net.Conn) {
 		defer p.metrics.ActiveConnections.WithLabelValues("tcp", p.rule.LocalEndpoint(), p.rule.RemoteEndpoint()).Dec()
 	}
 
-	// Set deadline on client connection
-	clientConn.SetDeadline(time.Now().Add(TCPTimeout))
-
 	// Dial remote through tunnel
-	ctx, cancel := context.WithTimeout(p.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(p.ctx, dialTimeout)
 	remoteConn, err := p.manager.DialTCP(ctx, p.rule.RemoteEndpoint())
 	cancel()
 	if err != nil {
@@ -110,8 +110,12 @@ func (p *TCPProxy) handleConn(clientConn net.Conn) {
 	}
 	defer remoteConn.Close()
 
-	// Set deadline on remote connection
-	remoteConn.SetDeadline(time.Now().Add(TCPTimeout))
+	// Active streams have no lifetime limit; shutdown closes both directions.
+	stop := context.AfterFunc(p.ctx, func() {
+		clientConn.Close()
+		remoteConn.Close()
+	})
+	defer stop()
 
 	// Bidirectional copy
 	var wg sync.WaitGroup
@@ -120,14 +124,16 @@ func (p *TCPProxy) handleConn(clientConn net.Conn) {
 	// Client -> Remote
 	go func() {
 		defer wg.Done()
-		n, _ := p.copyWithMetrics(remoteConn, clientConn, "tx")
+		n, err := p.copyWithMetrics(remoteConn, clientConn, "tx")
+		finishWrite(remoteConn, err)
 		p.logger.Debug("client->remote copy done", "bytes", n)
 	}()
 
 	// Remote -> Client
 	go func() {
 		defer wg.Done()
-		n, _ := p.copyWithMetrics(clientConn, remoteConn, "rx")
+		n, err := p.copyWithMetrics(clientConn, remoteConn, "rx")
+		finishWrite(clientConn, err)
 		p.logger.Debug("remote->client copy done", "bytes", n)
 	}()
 

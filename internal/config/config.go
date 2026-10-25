@@ -28,18 +28,19 @@ type Config struct {
 
 // Profile represents a single wg-proxy profile configuration.
 type Profile struct {
-	Server        string   `yaml:"server"`
-	PrivateKey    string   `yaml:"private_key"`
-	PeerPublicKey string   `yaml:"peer_public_key"`
-	PSK           string   `yaml:"psk"`
-	CIDR          string   `yaml:"cidr"`
-	TunIP         string   `yaml:"tun_ip"`
-	MTU           int      `yaml:"mtu"`
-	TCP           []string `yaml:"tcp"`
-	UDP           []string `yaml:"udp"`
-	LogLevel      string   `yaml:"log_level"`
-	Metrics       string   `yaml:"metrics"`
-	PProf         string   `yaml:"pprof"`
+	Server        string     `yaml:"server"`
+	PrivateKey    string     `yaml:"private_key"`
+	PeerPublicKey string     `yaml:"peer_public_key"`
+	PSK           string     `yaml:"psk"`
+	CIDR          string     `yaml:"cidr"`
+	TunIP         string     `yaml:"tun_ip"`
+	MTU           int        `yaml:"mtu"`
+	TCP           []string   `yaml:"tcp"`
+	UDP           []string   `yaml:"udp"`
+	HTTPProxy     *HTTPProxy `yaml:"http_proxy"`
+	LogLevel      string     `yaml:"log_level"`
+	Metrics       string     `yaml:"metrics"`
+	PProf         string     `yaml:"pprof"`
 
 	// Resolved values (populated after Load)
 	ResolvedPrivateKey    []byte
@@ -148,8 +149,8 @@ func (p *Profile) Validate() error {
 	if p.PeerPublicKey == "" {
 		return fmt.Errorf("peer_public_key is required")
 	}
-	if len(p.TCP) == 0 && len(p.UDP) == 0 {
-		return fmt.Errorf("at least one tcp or udp rule must exist")
+	if len(p.TCP) == 0 && len(p.UDP) == 0 && p.HTTPProxy == nil {
+		return fmt.Errorf("at least one tcp, udp, or http_proxy entry must exist")
 	}
 
 	// Validate forwarding rules
@@ -165,8 +166,14 @@ func (p *Profile) Validate() error {
 	}
 
 	// Validate CIDR
-	if _, _, err := net.ParseCIDR(p.CIDR); err != nil {
+	_, network, err := net.ParseCIDR(p.CIDR)
+	if err != nil {
 		return fmt.Errorf("invalid cidr %q: %w", p.CIDR, err)
+	}
+	if p.HTTPProxy != nil {
+		if err := p.HTTPProxy.validate(network); err != nil {
+			return err
+		}
 	}
 
 	// Validate TunIP
@@ -349,6 +356,13 @@ profiles:
     # UDP port forwarding rules
     udp:
       - "5353:10.1.1.1:53"
+
+    # Optional: browser HTTPS through one private ingress (no TCP/UDP rules needed)
+    # PAC URL: http://127.0.0.1:18080/proxy.pac
+    # http_proxy:
+    #   listen: "127.0.0.1:18080"
+    #   target: "10.1.1.1:443"
+    #   hosts: ["*.example.com"]
     
     # Log level: debug, info, warn, error
     # Default: info
