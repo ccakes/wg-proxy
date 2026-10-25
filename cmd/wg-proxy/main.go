@@ -141,6 +141,17 @@ func run(profile *config.Profile, logger *slog.Logger) error {
 	tunnelManager := tunnel.NewManager(profile, logger)
 	defer tunnelManager.Close()
 
+	// Browser traffic keeps its HTTPS name while the tunnel dials the ingress.
+	if profile.HTTPProxy != nil {
+		p := proxy.NewHTTPProxy(profile.HTTPProxy, tunnelManager, logger)
+		if err := p.Start(); err != nil {
+			return fmt.Errorf("failed to start HTTP proxy: %w", err)
+		}
+		defer p.Stop()
+		logger.Info("HTTP proxy started", "listen", profile.HTTPProxy.Listen,
+			"pac", "http://"+profile.HTTPProxy.Listen+"/proxy.pac")
+	}
+
 	// Parse forwarding rules
 	tcpRules, err := profile.GetTCPRules()
 	if err != nil {

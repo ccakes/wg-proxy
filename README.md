@@ -23,6 +23,7 @@ If you experience issues with larger responses, try reducing the MTU further (e.
 - **On-demand tunnels**: Creates WireGuard tunnel on first traffic, tears down after 2 minutes of inactivity
 - **Multiple profiles**: Support for named configuration profiles
 - **TCP & UDP forwarding**: Forward both TCP and UDP ports through the tunnel
+- **Browser HTTPS**: Local CONNECT proxy and PAC file preserve service names and TLS
 - **Flexible binding**: Bind to localhost or specific interfaces
 - **Metrics**: Optional Prometheus metrics endpoint
 - **Debug profiling**: Optional pprof endpoint for performance analysis
@@ -104,6 +105,36 @@ wg-proxy --profile production --config config.yaml
 ```
 
 The tunnel will be created on-demand when you first access a forwarded port.
+
+## Browser access through a private ingress
+
+Add this to an existing WireGuard profile to reach HTTPS services by name
+through a shared ingress. TCP/UDP forwards are optional; TLS terminates at the ingress.
+
+```yaml
+http_proxy:
+  listen: "127.0.0.1:18080"
+  target: "10.1.1.100:443"
+  hosts: ["*.example.com"]
+```
+
+Start wg-proxy and set the automatic proxy URL to
+`http://127.0.0.1:18080/proxy.pac`:
+
+- **Safari / Chrome on macOS:** System Settings → Network → active connection
+  → Details → Proxies → Automatic Proxy Configuration. Other apps may also use it.
+- **Firefox:** Settings → Network Settings → Automatic proxy configuration URL.
+
+Open `https://app.example.com`. Matching names use WireGuard; other sites
+connect directly. Keep wg-proxy running while the PAC setting is enabled.
+
+`listen` requires a loopback IP and fixed port. `target` requires an IPv4 address
+on port 443, reachable through WireGuard and inside the profile's `cidr`.
+That CIDR must also cover any retained TCP/UDP forwards. `hosts` accepts exact
+names or `*.suffix` patterns; wildcards exclude the suffix itself.
+
+Only TCP-based HTTPS is supported. The local proxy is unauthenticated;
+host rules do not provide per-application authorization within the ingress.
 
 ## Running as a System Service
 
@@ -273,6 +304,9 @@ go build -ldflags "-s -w" -o wg-proxy ./cmd/wg-proxy
 ```bash
 # Run tests
 go test ./...
+
+# Check concurrent connections and shutdown (Node.js also tests PAC execution)
+go test -race ./...
 
 # Run with race detector
 go run -race ./cmd/wg-proxy --profile dev

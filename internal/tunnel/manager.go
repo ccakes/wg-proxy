@@ -158,9 +158,9 @@ func (m *Manager) buildIPCConfig() (string, error) {
 	cfg := fmt.Sprintf(`private_key=%s
 public_key=%s
 endpoint=%s
-allowed_ip=0.0.0.0/0
+allowed_ip=%s
 persistent_keepalive_interval=%d
-`, privateKeyHex, peerPubKeyHex, endpoint, KeepaliveInterval)
+`, privateKeyHex, peerPubKeyHex, endpoint, m.profile.CIDR, KeepaliveInterval)
 
 	// Add PSK if provided
 	if m.profile.PSK != "" {
@@ -176,9 +176,9 @@ persistent_keepalive_interval=%d
 public_key=%s
 preshared_key=%s
 endpoint=%s
-allowed_ip=0.0.0.0/0
+allowed_ip=%s
 persistent_keepalive_interval=%d
-`, privateKeyHex, peerPubKeyHex, pskHex, endpoint, KeepaliveInterval)
+`, privateKeyHex, peerPubKeyHex, pskHex, endpoint, m.profile.CIDR, KeepaliveInterval)
 	}
 
 	return cfg, nil
@@ -402,6 +402,14 @@ func (c *trackingConn) Close() error {
 
 	c.manager.DecrementConns()
 	return c.Conn.Close()
+}
+
+// CloseWrite preserves half-closes through the connection tracker.
+func (c *trackingConn) CloseWrite() error {
+	if writer, ok := c.Conn.(interface{ CloseWrite() error }); ok {
+		return writer.CloseWrite()
+	}
+	return c.Close()
 }
 
 func (c *trackingConn) Read(b []byte) (int, error) {
